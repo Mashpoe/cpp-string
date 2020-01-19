@@ -1,9 +1,8 @@
 //
 //  string.hpp
-//  CPP_STR
+//  cpp-string
 //
 //  Created by Mashpoe on 7/28/19.
-//  Copyright © 2019 Mashpoe. All rights reserved.
 //
 
 #ifndef string_hpp
