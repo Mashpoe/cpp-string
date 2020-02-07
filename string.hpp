@@ -20,16 +20,6 @@ private:
 	char* str;
 	size_t len;
 	
-//	char* empty_str() {
-//		// return 1 null byte for empty "" string
-//		// this is so realloc will work
-//		return (char*)calloc(1, sizeof(char));
-//	}
-	
-//		enum {
-//			INT_STRING_SIZE = ((sizeof(int)*CHAR_BIT - 1)*28/93 + 3)
-//		};
-	
 	// private constructor to avoid copying
 	string(size_t length, void* value) : str((char*)value), len(length) {}
 	
@@ -301,33 +291,26 @@ string operator + (string&& left, string const& right) {
 	left.str = nullptr;
 	
 	// copy the contents of both strings
-	//memcpy(s.str, left.str, left.len);
 	memcpy(&s.str[left.len], right.str, right.len);
 	
 	// add null terminator
-	s.str[new_len] = '\0';
-	
-	// explicitly call destructor for left rvalue
-	
+	s.str[new_len] = '\0';	
 	
 	return s;
 }
 
 template <typename T>
 inline string operator + (string const& left, T const& right) {
-	std::cout << "reeeee1" << std::endl;
 	return left + string(right);
 }
 
 template <typename T>
 inline string operator + (T const& left, string const& right) {
-	//std::cout << "reeeee2" << std::endl;
 	return string(left) + right;
 }
 
 template <typename T>
 inline string operator + (string&& left, T const& right) {
-	//std::cout << "reeeee3" << std::endl;
 	return std::forward<string>(left) + string(right);
 }
 
