@@ -17,58 +17,145 @@ namespace mp {
 
 class string {
 private:
+	
+	// compile time constants
+	enum {
+		in_situ_capacity = 16,
+		in_situ_size = in_situ_capacity - 1
+	};
+	
 	char* str;
 	size_t len;
+	union {
+		size_t capacity;
+		// last byte has flag bit, 1 = large string
+		// 0 = small string and null terminator
+		char data[in_situ_capacity];
+	} in_situ;
+	
+	inline void init(size_t length) {
+		len = length;
+		if (length > in_situ_size) {
+			size_t capacity = length + 1;
+			
+			in_situ.capacity = capacity;
+			in_situ.data[in_situ_size] = '\1';
+			
+			str = (char*)malloc(capacity);
+		} else {
+			in_situ.data[in_situ_size] = '\0';
+			str = in_situ.data;
+		}
+	}
+	
+	// change the string's capacity if the new capacity is greater
+	// does not change len
+	void resize(size_t new_capacity) {
+		
+		// check capacity using flag bit
+		if (in_situ.data[in_situ_size] == '\1') {
+			
+			if (new_capacity > in_situ.capacity) {
+				in_situ.capacity = new_capacity;
+				str = (char*)realloc(str, new_capacity);
+			}
+			
+		} else {
+			// capacity <= in_situ_size
+			if (new_capacity > in_situ_size) {
+				
+				// move data to the heap
+				char* new_str = (char*)malloc(new_capacity);
+				
+				// copy str including null teminator
+				memcpy(new_str, str, len + 1);
+				
+				str = new_str;
+				
+				// change flag bit to large string
+				in_situ.data[in_situ_size] = '\1';
+				
+				in_situ.capacity = new_capacity;
+				
+			}
+			
+		}
+	}
 	
 	// private constructor to avoid copying
 	string(size_t length, void* value) : str((char*)value), len(length) {}
 	
+	// creates a string with enough capacity for length
+	string(size_t length, size_t capacity) {
+		len = length;
+		if (capacity > in_situ_capacity) {
+			str = (char*)malloc(capacity);
+			in_situ.capacity = capacity;
+			// set flag bit
+			in_situ.data[in_situ_size] = '\1';
+		} else {
+			str = in_situ.data;
+			in_situ.data[in_situ_size] = '\0';
+		}
+	}
+	
 public:
 	
 	// initialize str with 1 null byte ""
-	string() : str((char*)calloc(1, sizeof(char))), len(0) {}
-	string(decltype(nullptr)) : str((char*)calloc(1, sizeof(char))), len(0) {}
+	string() {
+		str = in_situ.data;
+		len = 0;
+		in_situ.data[0] = '\0';
+		in_situ.data[in_situ_size] = '\0';
+	}
+	string(decltype(nullptr)) {
+		str = in_situ.data;
+		len = 0;
+		in_situ.data[0] = '\0';
+		in_situ.data[in_situ_size] = '\0';
+	}
 	
 	string(const char* value) {
 		if (value == nullptr) {
 			len = 0;
-			str = (char*)calloc(1, sizeof(char));
+			in_situ.data[0] = '\0';
+			in_situ.data[15] = '\0';
 			return;
 		}
 		
-		len = strlen(value);
-		str = (char*)malloc(len + 1);
-		strcpy(str, value);
+		init(strlen(value));
+		memcpy(str, value, len);
+		return;
 	}
 	string(const char* value, size_t length) {
-		len = length;
-		str = (char*)malloc(len + 1);
-		strcpy(str, value);
+		init(length);
+		memcpy(str, value, len);
 	}
 	
 	// implement your own constructors for other types
+	// must be explicit to avoid accidental conversions
 	template <typename T>
-	string(T value) {
+	explicit string(T value) {
 		std::string str_value = std::to_string(value);
-		len = str_value.length();
-		str = (char*)malloc(len + 1);
-		str = strcpy(str, str_value.c_str());
+		init(str_value.length());
+		memcpy(str, str_value.c_str(), len);
 	}
 	// an example of a custom constructor for a specific type
-	string(bool value) {
+	// we don't need to allocate because it will fit on the stack
+	explicit string(bool value) {
 		if (value) {
-			len = 4;
-			str = (char*)malloc(len + 1);
-			str = strcpy(str, "true");
+			init(4);
+			memcpy(str, "true", len);
 		} else  {
-			len = 5;
-			str = (char*)malloc(len + 1);
-			str = strcpy(str, "false");
+			init(5);
+			memcpy(str, "false", len);
 		}
 	}
 	
+	
 	~string() {
-		if (str != nullptr) {
+		// this can be manually set to 1 for move semantics
+		if (in_situ.data[in_situ_size] == '\1') {
 			free(str);
 		}
 	}
@@ -83,64 +170,118 @@ public:
 	
 	// copy constructor
 	string(string const& other) {
-		str = (char*)malloc(other.len + 1);
-		strcpy(str, other.str);
-		len = other.len;
+		
+		// check flag bit
+		if (other.in_situ.data[in_situ_size] == '\1') {
+			len = other.len;
+			in_situ.capacity = len + 1;
+			in_situ.data[in_situ_size] = '\1';
+			
+			str = (char*)malloc(in_situ.capacity);
+			memcpy(str, other.str, in_situ.capacity);
+		} else {
+			// just copy the stack data
+			str = in_situ.data;
+			len = other.len;
+			memcpy(&in_situ.data, &other.in_situ.data, len + 1);
+			in_situ.data[in_situ_size] = '\0';
+		}
+		
 	}
 	
 	// copy assignment
 	string& operator = (string const& other) {
-		str = (char*)malloc(other.len + 1);
-		strcpy(str, other.str);
-		len = other.len;
+		
+		// check flag bit
+		if (other.in_situ.data[in_situ_size] == '\1') {
+			len = other.len;
+			in_situ.capacity = len + 1;
+			in_situ.data[in_situ_size] = '\1';
+			
+			str = (char*)malloc(in_situ.capacity);
+			memcpy(str, other.str, in_situ.capacity);
+		} else {
+			// just copy the stack data
+			str = in_situ.data;
+			len = other.len;
+			memcpy(&in_situ.data, &other.in_situ.data, len + 1);
+			in_situ.data[in_situ_size] = '\0';
+		}
+		
 		return *this;
+		
 	}
-
+	
 	// move constructor
 	string(string&& other) noexcept {
-		// take ownership
-		str = other.str;
-		len = other.len;
-
-		// reset other
-		other.str = nullptr;
-	}
-
-	// move assignment
-	string& operator = (string&& other) noexcept {
-		if (this != &other) {
+		
+		// check flag bit
+		if (other.in_situ.data[in_situ_size] == '\1') {
+			len = other.len;
+			in_situ.capacity = other.in_situ.capacity;
+			in_situ.data[in_situ_size] = '\1';
+			
 			// take ownership
 			str = other.str;
+			// set other flag bit to 0 so destructor won't free
+			other.in_situ.data[in_situ_size] = '\0';
+		} else {
+			// just copy the stack data
+			str = in_situ.data;
 			len = other.len;
-
-			// reset other
-			other.str = nullptr;
+			memcpy(&in_situ.data, &other.in_situ.data, len + 1);
+			in_situ.data[in_situ_size] = '\0';
+		}
+		
+	}
+	
+	// move assignment
+	string& operator = (string&& other) noexcept {
+		// unfortunate but necessary repitition of code
+		if (this != &other) {
+			// check flag bit
+			if (other.in_situ.data[in_situ_size] == '\1') {
+				len = other.len;
+				in_situ.capacity = other.in_situ.capacity;
+				in_situ.data[in_situ_size] = '\1';
+				
+				// take ownership
+				str = other.str;
+				// set other flag bit to 0 so destructor won't free
+				other.in_situ.data[in_situ_size] = '\0';
+			} else {
+				// just copy the stack data
+				str = in_situ.data;
+				len = other.len;
+				memcpy(&in_situ.data, &other.in_situ.data, len + 1);
+				in_situ.data[in_situ_size] = '\0';
+			}
 		}
 		return *this;
+	}
+	
+	const char* c_str() const {
+		return str;
+	}
+	
+	bool empty() const {
+		return len == 0;
 	}
 	
 	operator const char* () {
 		return str;
 	}
 	
-	const char* c_str() const {
-		return str;
-	}
-
 	char& operator [] (int pos) {
 		return str[pos];
 	}
 	
 	bool operator ! () {
-		/* empty strings have 1 null byte allocated because
-				a) you can use realloc on it
-				b) it prevents internal null checks
-				c) it can be cast to an empty string "" */
-		return str[0] == '\0';
+		return len == 0;
 	}
 	
 	explicit operator bool() {
-		return str[0] != '\0';
+		return len != 0;
 	}
 	
 	bool operator == (const char* value) {
@@ -156,27 +297,40 @@ public:
 	}
 	
 	void insert(size_t pos, const string& value) {
+		
 		// allocate sum of both string lengths + 1 for null terminator
 		size_t new_len = len + value.len;
-		// don't use realloc becase we only want to copy the first section of the string
-		char* new_str = (char*)malloc(new_len + 1);
+		resize(new_len + 1);
 		
-		// copy the contents of both strings
-		memcpy(new_str, str, pos);
-		memcpy(&new_str[pos], value.str, value.len);
-		memcpy(&new_str[pos + value.len], &str[pos], len - pos);
+		// move the right side of pos
+		memmove(&str[pos + value.len], &str[pos], len - pos);
+		memcpy(&str[pos], value.str, value.len);
 		
 		// add null terminator
-		new_str[new_len] = '\0';
+		str[new_len] = '\0';
 		
-		// free old string
-		free(str);
-		str = new_str;
+		len = new_len;
+	}
+	
+	void insert(size_t pos, const char* value) {
+		
+		// allocate sum of both string lengths + 1 for null terminator
+		size_t value_len = strlen(value);
+		size_t new_len = len + value_len;
+		resize(new_len + 1);
+		
+		// move the right side of pos
+		memmove(&str[pos + value_len], &str[pos], len - pos);
+		memcpy(&str[pos], value, value_len);
+		
+		// add null terminator
+		str[new_len] = '\0';
+		
 		len = new_len;
 	}
 	
 	template <typename T>
-	void insert(size_t pos, T& value) {
+	void insert(size_t pos, T const& value) {
 		insert(pos, string(value));
 	}
 	
@@ -184,7 +338,7 @@ public:
 		
 		// allocate sum of both string lengths + 1 for null terminator
 		size_t new_len = len + value.len;
-		str = (char*)realloc(str, new_len + 1);
+		resize(new_len + 1);
 		
 		// copy the other string
 		memcpy(&str[len], value.str, value.len);
@@ -202,7 +356,7 @@ public:
 		
 		// allocate sum of both string lengths + 1 for null terminator
 		size_t new_len = len + value_len;
-		str = (char*)realloc(str, new_len + 1);
+		resize(new_len + 1);
 		
 		// copy the other string
 		memcpy(&str[len], value, value_len);
@@ -212,6 +366,11 @@ public:
 		
 		// update length
 		len = new_len;
+	}
+	
+	template <typename T>
+	void append(T const& value) {
+		append(string(value));
 	}
 	
 	inline string& operator += (string const& value) {
@@ -225,7 +384,7 @@ public:
 	}
 	
 	template <typename T>
-	string& operator += (T& value) {
+	string& operator += (T const& value) {
 		append(string(value));
 		return *this;
 	}
@@ -269,8 +428,8 @@ public:
 string operator + (string const& left, string const& right) {
 	// allocate sum of both string lengths + 1 for null terminator
 	size_t new_len = left.len + right.len;
-	// call private constructor with void* to avoid copying
-	string s(new_len, malloc(new_len + 1));
+	// call private constructor to allocate an empty string with the given length
+	string s(new_len, new_len + 1);
 	
 	// copy the contents of both strings
 	memcpy(s.str, left.str, left.len);
@@ -283,20 +442,26 @@ string operator + (string const& left, string const& right) {
 }
 
 string operator + (string&& left, string const& right) {
-	// allocate sum of both string lengths + 1 for null terminator
-	size_t new_len = left.len + right.len ;
-	// call private constructor with void* to avoid copying
-	string s(new_len, realloc(left.str, new_len + 1));
-	// take ownership of left.str
-	left.str = nullptr;
+	/* left is an rvalue, so we can just modify then move it
+	 to increase performance */
 	
-	// copy the contents of both strings
-	memcpy(&s.str[left.len], right.str, right.len);
+	// allocate sum of both string lengths + 1 for null terminator
+	size_t new_len = left.len + right.len;
+	
+	// now resize left (won't change left.len)
+	left.resize(new_len + 1);
+	
+	// copy the contents of the other string
+	memcpy(&left.str[left.len], right.str, right.len);
+	
+	// update left.len
+	left.len = new_len;
 	
 	// add null terminator
-	s.str[new_len] = '\0';	
+	left.str[new_len] = '\0';
 	
-	return s;
+	// transfer from left before it gets destroyed
+	return std::move(left);
 }
 
 template <typename T>
@@ -319,8 +484,8 @@ string operator + (string const& left, const char* right) {
 	
 	// allocate sum of both string lengths + 1 for null terminator
 	size_t new_len = left.len + right_len;
-	// call private constructor with void* to avoid copying
-	string s(new_len, malloc(new_len + 1));
+	// call private constructor to avoid copying
+	string s(new_len, new_len + 1);
 	
 	// copy the contents of both strings
 	memcpy(s.str, left.str, left.len);
@@ -337,8 +502,8 @@ string operator + (const char* left, string const& right) {
 	
 	// allocate sum of both string lengths + 1 for null terminator
 	size_t new_len = left_len + right.len;
-	// call private constructor with void* to avoid copying
-	string s(new_len, malloc(new_len + 1));
+	// call private constructor to avoid copying
+	string s(new_len, new_len + 1);
 	
 	// copy the contents of both strings
 	memcpy(s.str, left, left_len);
@@ -351,22 +516,28 @@ string operator + (const char* left, string const& right) {
 }
 
 string operator + (string&& left, const char* right) {
+	/* left is an rvalue, so we can just modify then move it
+	 to increase performance */
+	
 	size_t right_len = strlen(right);
 	
 	// allocate sum of both string lengths + 1 for null terminator
 	size_t new_len = left.len + right_len;
-	// call private constructor with void* to avoid copying
-	string s(new_len, realloc(left.str, new_len + 1));
-	// take ownership of left.str
-	left.str = nullptr;
+	
+	// now resize left (won't change left.len)
+	left.resize(new_len + 1);
 	
 	// copy the contents of the other string
-	memcpy(&s.str[left.len], right, right_len);
+	memcpy(&left.str[left.len], right, right_len);
+	
+	// update left.len
+	left.len = new_len;
 	
 	// add null terminator
-	s.str[new_len] = '\0';
+	left.str[new_len] = '\0';
 	
-	return s;
+	// transfer from left before it gets destroyed
+	return std::move(left);
 }
 
 // only works if using namespace mp, "string"_mp will be equal to string("string", 6)
