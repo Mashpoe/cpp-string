@@ -237,7 +237,7 @@ public:
 	
 	// move assignment
 	string& operator = (string&& other) noexcept {
-		// unfortunate but necessary repitition of code
+		// unfortunate but necessary repetition of code
 		if (this != &other) {
 			// check flag bit
 			if (other.in_situ.data[in_situ_size] == '\1') {
